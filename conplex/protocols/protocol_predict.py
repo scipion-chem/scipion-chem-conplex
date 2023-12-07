@@ -88,7 +88,7 @@ class ProtConPLexPrediction(EMProtocol):
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
     program = f'{pwchemPlugin.getEnvActivationCommand(CONPLEX_DIC)} && conplex-dti predict '
     args = f"--data-file {argFile} --model-path {modelPath} --outfile results.tsv"
-    self.runJob(program, args, cwd=self._getExtraPath())
+    self.runJob(program, args, cwd=self._getPath())
 
   def copyInputMolsInDir(self):
     oDir = os.path.abspath(self._getTmpPath('inMols'))

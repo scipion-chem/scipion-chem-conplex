@@ -70,9 +70,9 @@ class Plugin(pwchemPlugin):
 		# Installing package
 		installer.getCloneCommand('https://github.com/samsledje/ConPLex.git', targeName='CONPLEX_CLONED') \
 			.getCondaEnvCommand(pythonVersion='3.9', requirementsFile=False) \
-			.addCommand(f'{cls.getEnvActivationCommand(CONPLEX_DIC)} && cd ConPLex && git checkout dev && '
-									f'make poetry-download && make install && '
-									f'conplex-dti download --to datasets --benchmarks {cls.getConPLexBenchmarks()} && '
+			.addCommand(f'{cls.getEnvActivationCommand(CONPLEX_DIC)} && cd ConPLex && '
+									f'pip install conplex-dti && '
+									# f'conplex-dti download --to datasets --benchmarks {cls.getConPLexBenchmarks()} && '
 									f'wget {cls.getConPLexModelUrl()} --no-check-certificate -P models', 'CONPLEX_INSTALLED') \
 			.addPackage(env, ['git', 'conda', 'make', 'wget'], default=default)
 
