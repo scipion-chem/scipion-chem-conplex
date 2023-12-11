@@ -24,5 +24,5 @@
 # *
 # **************************************************************************
 
-from .protocol_predict import ProtConPLexPrediction
+from .protocol_conplex_predict import ProtConPLexPrediction
 
