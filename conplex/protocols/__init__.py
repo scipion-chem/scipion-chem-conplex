@@ -25,4 +25,5 @@
 # **************************************************************************
 
 from .protocol_conplex_predict import ProtConPLexPrediction
+from .protocol_extract_interactingMols import ProtExtractInteractingMols
 

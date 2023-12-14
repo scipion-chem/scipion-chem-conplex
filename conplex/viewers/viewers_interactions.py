@@ -25,14 +25,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+from tkinter.messagebox import askokcancel
 
 import pyworkflow.viewer as pwviewer
 from pyworkflow.protocol  import params
 
-import pwem.viewers.views as views
-import pwem.viewers.showj as showj
+from pwem.protocols import ProtSubSet
 
-from ..protocols import ProtConPLexPrediction
+from ..protocols import ProtConPLexPrediction, ProtExtractInteractingMols
 
 
 def heatmap(data, row_labels, col_labels, ax=None,
@@ -162,15 +162,15 @@ class ConPLexViewer(pwviewer.ProtocolViewer):
     pwviewer.ProtocolViewer.__init__(self, **kwargs)
 
   def _defineParams(self, form):
-    intDic, protIds, molIds = self.parseInteractionsFile(self.getInteractionsFile())
+    intDic, seqNames, molNames = self.getProtocol().parseInteractionsFile(self.getProtocol().getInteractionsFile())
 
     form.addSection(label='ConPLex viewer')
     sGroup = form.addGroup('Score filter')
-    sGroup.addParam('chooseProt', params.EnumParam, label='Display results for protein: ',
-                    choices=['All'] + protIds, default=0,
+    sGroup.addParam('chooseSeq', params.EnumParam, label='Display results for protein: ',
+                    choices=['All'] + seqNames, default=0,
                     help='Display the selected results only for the specific protein')
     sGroup.addParam('chooseMol', params.EnumParam, label='Display results for molecules: ',
-                    choices=['All'] + molIds, default=0,
+                    choices=['All'] + molNames, default=0,
                     help='Display the selected results only for the specific molecule')
     sGroup.addParam('scoreThres', params.FloatParam, label='Score threshold: ', default=0,
                     help='Display the interaction results over the selected score threshold')
@@ -179,88 +179,159 @@ class ConPLexViewer(pwviewer.ProtocolViewer):
     hGroup.addParam('displayHeatMap', params.LabelParam, label='Display DTI heatmap: ',
                     help='Display a heatmap showing the scores for each protein-molecule pair')
 
+    oGroup = form.addGroup('Generate output')
+    oGroup.addParam('genProts', params.LabelParam, label='Generate protein sequences: ',
+                    help='Generate an output of the filtered sequences of proteins'
+                         '\ne.g: proteins passing the score filter specified above')
+    oGroup.addParam('genMols', params.LabelParam, label='Generate small molecules: ',
+                    help='Generate an output of the filtered molecules. '
+                         '\ne.g: molecules passing the score filter specified above')
+
   def _getVisualizeDict(self):
     return {
       'displayHeatMap': self._viewHeatMap,
+
+      'genProts': self._generateProts,
+      'genMols': self._generateMols,
     }
 
 
 ################# DOCKING VIEWS ###################
   def _viewHeatMap(self, paramName=None):
-      intDic, protIds, molIds = self.parseInteractionsFile(self.getInteractionsFile())
-      protIds, molIds = self.filterIds(protIds, molIds)
-      intAr = self.formatInteractionsArray(intDic, protIds, molIds)
-      intAr, protIds, molIds = self.filterScores(intAr, protIds, molIds)
+    outSeqs = self.getOutSeqs()
+    seqNames, molNames = outSeqs.getSequenceNames(), outSeqs.getInteractMolNames()
+    if len(seqNames) * len(molNames) > 1000:
+      try:
+        msg = f"A heatmap with the scores of the selected sequence-molecule pairs will be displayed.\n" \
+              f"Big sets of sequences/molecules might take a while to process and display.\n" \
+              f"Do you want to continue?"
+        answer = askokcancel("Display heatmap", msg, parent=None)
+      except:
+        answer = True
+    else:
+      answer = True
+
+    if answer:
+      intAr, seqNames, molNames = self.getFilteredOutput()
 
       fig, ax = plt.subplots()
-      im, cbar = heatmap(intAr, protIds, molIds, ax=ax,
+      im, cbar = heatmap(intAr, seqNames, molNames, ax=ax,
                          cmap="YlGn", cbarlabel="ConPLex interaction score")
       texts = annotate_heatmap(im, valfmt="{x:.2f}")
       fig.tight_layout()
       plt.show()
 
+  def _generateProts(self, paramName=None):
+    prot = self.getProtocol()
+    project = prot.getProject()
+    _, seqNames, _ = self.getFilteredOutput()
+
+    objIds = []
+    for seq in prot.outputSequences:
+      if seq.getSeqName() in seqNames:
+        objIds.append(str(seq.getObjId()))
+
+    try:
+      msg = f"An output of the following {len(seqNames)} sequences will be generated:\n{','.join(seqNames)}"
+      answer = askokcancel("Generate sequences output",  msg,  parent=None)
+    except:
+      answer = True
+
+    if answer:
+      protFilter = project.newProtocol(
+        ProtSubSet,
+        selectIds=True, range=','.join(objIds)
+      )
+
+      protFilter.setObjLabel('Filtered sequences')
+      protFilter.inputFullSet.set(prot)
+      protFilter.inputFullSet.setExtended('outputSequences')
+
+      project.launchProtocol(protFilter, wait=True)
+
+  def _generateMols(self, paramName=None):
+    prot = self.getProtocol()
+    project = prot.getProject()
+
+    _, _, filtMolNames = self.getFilteredOutput()
+
+    try:
+      msg = f"An output of the following {len(filtMolNames)} molecules will be generated:\n{','.join(filtMolNames)}"
+      answer = askokcancel("Generate sequences output",  msg,  parent=None)
+    except:
+      answer = True
+
+    if answer:
+      seqNames, molNames = self.getEnumText('chooseSeq'), self.getEnumText('chooseMol')
+      scThres = self.scoreThres.get()
+      protFilter = project.newProtocol(
+        ProtExtractInteractingMols,
+        chooseSeq=seqNames, chooseMol=molNames,
+        scThres=scThres
+      )
+      protFilter.inputSequences.set(prot)
+      protFilter.inputSequences.setExtended('outputSequences')
+
+      project.launchProtocol(protFilter, wait=True)
+
 #####################################################
   def getProtocol(self):
     return self.protocol
 
-  def filterIds(self, protIds, molIds):
-    if self.getEnumText('chooseProt') != 'All':
-      protIds = [protId for protId in protIds if protId == self.getEnumText('chooseProt')]
+  def getOutSeqs(self):
+    return self.protocol.outputSequences
+
+  def getFilteredOutput(self):
+    outSeqs = self.getOutSeqs()
+    intDic = outSeqs.getInteractScoresDic()
+
+    seqNames, molNames = outSeqs.getSequenceNames(), outSeqs.getInteractMolNames()
+    seqNames, molNames = self.filterIds(seqNames, molNames)
+
+    intAr = self.formatInteractionsArray(intDic, seqNames, molNames)
+    intAr, seqNames, molNames = self.filterScores(intAr, seqNames, molNames)
+    return intAr, seqNames, molNames
+
+  def filterIds(self, seqNames, molNames):
+    if self.getEnumText('chooseSeq') != 'All':
+      seqNames = [seqName for seqName in seqNames if seqName == self.getEnumText('chooseSeq')]
 
     if self.getEnumText('chooseMol') != 'All':
-      molIds = [molId for molId in molIds if molId == self.getEnumText('chooseMol')]
+      molNames = [molName for molName in molNames if molName == self.getEnumText('chooseMol')]
 
-    return protIds, molIds
+    return seqNames, molNames
 
-  def filterScores(self, intAr, protIds, molIds):
+  def filterScores(self, intAr, seqNames, molNames):
     ips, ims = [], []
     scThres = self.scoreThres.get()
 
-    for ip, protId in enumerate(protIds):
+    for ip, seqName in enumerate(seqNames):
       if any(intAr[ip,:] > scThres):
         ips.append(ip)
 
-    for im, molId in enumerate(molIds):
+    for im, molName in enumerate(molNames):
       if any(intAr[:, im] > scThres):
         ims.append(im)
 
-    if not len(protIds) == len(ips):
-      protIds = list(np.array(protIds)[ips])
+    if not len(seqNames) == len(ips):
+      seqNames = list(np.array(seqNames)[ips])
       intAr = intAr[ips, :]
 
-    if not len(molIds) == len(ims):
-      molIds = list(np.array(molIds)[ims])
+    if not len(molNames) == len(ims):
+      molNames = list(np.array(molNames)[ims])
       intAr = intAr[:, ims]
 
-    return intAr, protIds, molIds
+    return intAr, seqNames, molNames
 
-  def getInteractionsFile(self):
-    return self.getProtocol().getPath('results.tsv')
 
-  def formatInteractionsArray(self, intDic, protIds, molIds):
-    intAr = np.zeros((len(protIds), len(molIds)))
-    for i, protId in enumerate(protIds):
-      for j, molId in enumerate(molIds):
-        intAr[i, j] = intDic[protId][molId]
+  def formatInteractionsArray(self, intDic, seqNames, molNames):
+    intAr = np.zeros((len(seqNames), len(molNames)))
+    for i, seqName in enumerate(seqNames):
+      for j, molName in enumerate(molNames):
+        intAr[i, j] = intDic[seqName][molName]
     return intAr
 
 
-  def parseInteractionsFile(self, iFile):
-    '''Return a dictionary of the form {protId: {molId: score}}'''
-    intDic, molIds = {}, set([])
-    with open(iFile) as f:
-      for line in f:
-        molId, protId, score = line.split('\t')
-        molIds.add(molId)
-        if protId in intDic:
-          intDic[protId][molId] = score
-        else:
-          intDic[protId] = {molId: score}
 
-    protIds = list(intDic.keys())
-    molIds = list(molIds)
-    protIds.sort(), molIds.sort()
-
-    return intDic, protIds, molIds
 
 
