@@ -28,36 +28,5 @@
 """
 """
 
-from pwchem.wizards import SelectMultiElementWizard
 
-from ..protocols import ProtExtractInteractingMols
 
-from ..viewers import ConPLexViewer
-
-class SelectMultiSeqWizard(SelectMultiElementWizard):
-  """Lists the items in a SetOfSequences and choose several"""
-  _targets, _inputs, _outputs = [], {}, {}
-
-  def getListOfElements(self, protocol, scipionSet):
-    eleList = []
-    if scipionSet is not None:
-      for element in scipionSet:
-        eleList.append(element.getSeqName())
-    return ['All'] + eleList
-
-class SelectMultiMolWizard(SelectMultiElementWizard):
-  """Lists the items in a SetOfSequences and choose several"""
-  _targets, _inputs, _outputs = [], {}, {}
-
-  def getListOfElements(self, protocol, seqSet):
-    return ['All'] + seqSet.getInteractMolNames()
-
-SelectMultiSeqWizard().addTarget(protocol=ProtExtractInteractingMols,
-                                 targets=['chooseSeq'],
-                                 inputs=['inputSequences'],
-                                 outputs=['chooseSeq'])
-
-SelectMultiMolWizard().addTarget(protocol=ProtExtractInteractingMols,
-                                 targets=['chooseMol'],
-                                 inputs=['inputSequences'],
-                                 outputs=['chooseMol'])
