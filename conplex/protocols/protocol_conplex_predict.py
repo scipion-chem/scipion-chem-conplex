@@ -31,6 +31,7 @@ from pyworkflow.protocol import params
 
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import OPENBABEL_DIC
+from pwchem.objects import SequenceChem, SetOfSequencesChem
 
 from .. import Plugin as conplexPlugin
 from ..constants import CONPLEX_DIC
@@ -61,8 +62,7 @@ class ProtConPLexPrediction(EMProtocol):
   def _insertAllSteps(self):
     self._insertFunctionStep(self.convertStep)
     self._insertFunctionStep(self.predictStep)
-    # todo: how to express the output
-    # self._insertFunctionStep('createOutputStep')
+    self._insertFunctionStep(self.createOutputStep)
 
 
   def convertStep(self):
@@ -90,6 +90,30 @@ class ProtConPLexPrediction(EMProtocol):
     args = f"--data-file {argFile} --model-path {modelPath} --outfile results.tsv"
     self.runJob(program, args, cwd=self._getPath())
 
+  def createOutputStep(self):
+    inSeqs, inMols = self.inputSequences.get(), self.inputSmallMols.get()
+    intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
+
+    outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
+    for seq in inSeqs:
+      seqName = seq.getSeqName()
+      outSeq = SequenceChem()
+      outSeq.copy(seq)
+
+      seqIntDic = {}
+      for mol in inMols:
+        molName, molName = mol.getMolName(), mol.getMolName()
+        seqIntDic[molName] = intDic[seqName][molName]
+
+      outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
+      outSeqs.append(outSeq)
+
+    # outSeqs.setInteractScoresDic(intDic)
+    outSeqs.setInteractMols(mols=inMols)
+    self._defineOutputs(outputSequences=outSeqs)
+
+
+  ############## UTILS ########################
   def copyInputMolsInDir(self):
     oDir = os.path.abspath(self._getTmpPath('inMols'))
     if not os.path.exists(oDir):
@@ -116,4 +140,25 @@ class ProtConPLexPrediction(EMProtocol):
     for seq in self.inputSequences.get():
       seqsDic[seq.getSeqName()] = seq.getSequence()
     return seqsDic
+
+  def getInteractionsFile(self):
+    return self.getPath('results.tsv')
+
+  def parseInteractionsFile(self, iFile):
+    '''Return a dictionary of the form {seqName: {molName: score}}'''
+    intDic, molNames = {}, set([])
+    with open(iFile) as f:
+      for line in f:
+        molName, seqName, score = line.strip().split('\t')
+        molNames.add(molName)
+        if seqName in intDic:
+          intDic[seqName][molName] = score
+        else:
+          intDic[seqName] = {molName: score}
+
+    seqNames = list(intDic.keys())
+    molNames = list(molNames)
+    seqNames.sort(), molNames.sort()
+
+    return intDic, seqNames, molNames
 

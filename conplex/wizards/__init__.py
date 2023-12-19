@@ -1,1 +1,1 @@
-from .wizard_radius import *
+from .wizards import *

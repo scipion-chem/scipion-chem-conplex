@@ -26,11 +26,7 @@
 # **************************************************************************
 
 """
-This wizard will show the structure of the pdb using a matplotlib viewer 
-to select the radius of the sphere that contains the protein or a desired zone.
 """
-
-# Scipion chem imports
 
 
 
