@@ -56,7 +56,7 @@ class ProtConPLexPrediction(EMProtocol):
 
     mGroup = form.addGroup('Model')
     mGroup.addParam('modelName', params.EnumParam, choices=conplexPlugin.getLocalModels(),
-                    label='Model to use: ',
+                    label='Model to use: ', default=0,
                     help='Choose a model from those in {}'.format(conplexPlugin.getModelsDir()))
 
   def _insertAllSteps(self):
