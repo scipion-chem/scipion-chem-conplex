@@ -24,14 +24,14 @@
 # *
 # **************************************************************************
 
-import os, glob, shutil, subprocess
+import os
 
 from pwem.protocols import EMProtocol
 from pyworkflow.protocol import params
 
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import OPENBABEL_DIC
-from pwchem.objects import SequenceChem, SetOfSequencesChem
+from pwchem.objects import SequenceChem, SetOfSequencesChem, SmallMoleculesLibrary
 
 from .. import Plugin as conplexPlugin
 from ..constants import CONPLEX_DIC
@@ -50,8 +50,14 @@ class ProtConPLexPrediction(EMProtocol):
     iGroup.addParam('inputSequences', params.PointerParam, pointerClass="SetOfSequences",
                     label='Input protein sequences: ',
                     help="Set of protein sequences to perform the screening on")
+    iGroup.addParam('useLibrary', params.BooleanParam, label='Use library as input : ', default=False,
+                    help='Whether to use a SMI library SmallMoleculesLibrary object as input')
+
+    iGroup.addParam('inputLibrary', params.PointerParam, pointerClass="SmallMoleculesLibrary",
+                    label='Input library: ', condition='useLibrary',
+                    help="Input Small molecules library to predict")
     iGroup.addParam('inputSmallMols', params.PointerParam, pointerClass="SetOfSmallMolecules",
-                    label='Input small molecules: ',
+                    label='Input small molecules: ', condition='not useLibrary',
                     help='Set of small molecules to input the model for predicting their interactions')
 
     mGroup = form.addGroup('Model')
@@ -60,7 +66,8 @@ class ProtConPLexPrediction(EMProtocol):
                     help='Choose a model from those in {}'.format(conplexPlugin.getModelsDir()))
 
   def _insertAllSteps(self):
-    self._insertFunctionStep(self.convertStep)
+    if not self.useLibrary.get():
+      self._insertFunctionStep(self.convertStep)
     self._insertFunctionStep(self.predictStep)
     self._insertFunctionStep(self.createOutputStep)
 
@@ -82,7 +89,7 @@ class ProtConPLexPrediction(EMProtocol):
     argFile = os.path.abspath(self._getExtraPath('inputConPLex.tsv'))
     with open(argFile, 'w') as f:
       for seqName, seq in protSeqsDic.items():
-        for smi, smiName in smisDic.items():
+        for smiName, smi in smisDic.items():
           f.write(f'{seqName}\t{smiName}\t{seq}\t{smi}\n')
 
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
@@ -91,7 +98,7 @@ class ProtConPLexPrediction(EMProtocol):
     self.runJob(program, args, cwd=self._getPath())
 
   def createOutputStep(self):
-    inSeqs, inMols = self.inputSequences.get(), self.inputSmallMols.get()
+    inSeqs = self.inputSequences.get()
     intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
@@ -100,17 +107,47 @@ class ProtConPLexPrediction(EMProtocol):
       outSeq = SequenceChem()
       outSeq.copy(seq)
 
-      seqIntDic = {}
-      for mol in inMols:
-        molName, molName = mol.getMolName(), mol.getMolName()
-        seqIntDic[molName] = intDic[seqName][molName]
-
+      seqIntDic = intDic[seqName]
       outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
       outSeqs.append(outSeq)
 
-    # outSeqs.setInteractScoresDic(intDic)
-    outSeqs.setInteractMols(mols=inMols)
+      # outSeqs.setInteractScoresDic(intDic)
+    if not self.useLibrary.get():
+      outMols = self.inputSmallMols.get()
+    else:
+      outMols = self.inputLibrary.get()
+
+    outSeqs.setInteractMols(mols=outMols)
     self._defineOutputs(outputSequences=outSeqs)
+
+    # Mols output
+    if len(inSeqs) == 1:
+      inSeq = inSeqs.getFirstItem()
+      scoreDic = intDic[inSeq.getSeqName()]
+
+      if self.useLibrary.get():
+        mapDic = self.inputLibrary.get().getLibraryMap(inverted=True)
+        oLibFile = self._getPath('outputLibrary.smi')
+        with open(oLibFile, 'w') as f:
+          for smiName, score in scoreDic.items():
+            f.write(f'{mapDic[smiName]}\t{smiName}\t{score}\n')
+
+        outputLib = SmallMoleculesLibrary(libraryFilename=oLibFile, origin='GCR')
+        self._defineOutputs(outputLibrary=outputLib)
+
+      else:
+        inSet = self.inputSmallMols.get()
+        outputSet = inSet.createCopy(self._getPath(), copyInfo=True)
+        for mol in inSet:
+          nMol = mol.clone()
+          molName = nMol.getMolName()
+          if molName in scoreDic:
+            score = scoreDic[molName]
+            setattr(nMol, '_conplexScore', params.Float(score))
+            outputSet.append(nMol)
+        outputSet.updateMolClass()
+        self._defineOutputs(outputSmallMolecules=outputSet)
+
 
 
   ############## UTILS ########################
@@ -127,12 +164,19 @@ class ProtConPLexPrediction(EMProtocol):
     return os.path.abspath(self._getExtraPath('inputSMI'))
 
   def getInputSMIs(self):
+    '''Return the smi mapping dictionary {smiName: smi}
+    '''
     smisDic = {}
-    iDir = self.getInputSMIDir()
-    for file in os.listdir(iDir):
-      with open(os.path.join(iDir, file)) as f:
-        title, smi = f.readline().split()
-        smisDic[title] = smi.strip()
+    if not self.useLibrary.get():
+      iDir = self.getInputSMIDir()
+      for file in os.listdir(iDir):
+        with open(os.path.join(iDir, file)) as f:
+          smi, title = f.readline().split()
+          smisDic[title] = smi.strip()
+    else:
+      inLib = self.inputLibrary.get()
+      smisDic = inLib.getLibraryMap(inverted=True)
+
     return smisDic
 
   def getInputSeqs(self):
