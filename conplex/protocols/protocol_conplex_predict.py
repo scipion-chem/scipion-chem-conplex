@@ -127,17 +127,17 @@ class ProtConPLexPrediction(EMProtocol):
 
       if self.useLibrary.get():
         inLib = self.inputLibrary.get()
-        outLib = inLib.clone()
+        mapDic = inLib.getLibraryMap(inverted=True, fullLine=True)
 
-        mapDic = outLib.getLibraryMap(inverted=True, fullLine=True)
         oLibFile = self._getPath('outputLibrary.smi')
         with open(oLibFile, 'w') as f:
           for smiName, score in scoreDic.items():
             f.write(f'{mapDic[smiName]}\t{score}\n')
 
-        # Copy and append column
         prevHeaders = inLib.getHeaders()
-        outputLib = SmallMoleculesLibrary(libraryFilename=oLibFile, headers=prevHeaders + ['Conplex_score'])
+        outputLib = inLib.clone()
+        outputLib.setFileName(oLibFile)
+        outputLib.setHeaders(prevHeaders + ['Conplex_score'])
         self._defineOutputs(outputLibrary=outputLib)
 
       else:
