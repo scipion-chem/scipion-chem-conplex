@@ -103,7 +103,7 @@ class ProtConPLexPrediction(EMProtocol):
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
     for seq in inSeqs:
-      seqName = seq.getSeqName()
+      seqName = str(seq.getSeqName())
       outSeq = SequenceChem()
       outSeq.copy(seq)
 
@@ -123,16 +123,21 @@ class ProtConPLexPrediction(EMProtocol):
     # Mols output
     if len(inSeqs) == 1:
       inSeq = inSeqs.getFirstItem()
-      scoreDic = intDic[inSeq.getSeqName()]
+      scoreDic = intDic[str(inSeq.getSeqName())]
 
       if self.useLibrary.get():
-        mapDic = self.inputLibrary.get().getLibraryMap(inverted=True)
+        inLib = self.inputLibrary.get()
+        outLib = inLib.clone()
+
+        mapDic = outLib.getLibraryMap(inverted=True, fullLine=True)
         oLibFile = self._getPath('outputLibrary.smi')
         with open(oLibFile, 'w') as f:
           for smiName, score in scoreDic.items():
-            f.write(f'{mapDic[smiName]}\t{smiName}\t{score}\n')
+            f.write(f'{mapDic[smiName]}\t{score}\n')
 
-        outputLib = SmallMoleculesLibrary(libraryFilename=oLibFile, origin='GCR')
+        # Copy and append column
+        prevHeaders = inLib.getHeaders()
+        outputLib = SmallMoleculesLibrary(libraryFilename=oLibFile, headers=prevHeaders + ['Conplex_score'])
         self._defineOutputs(outputLibrary=outputLib)
 
       else:
