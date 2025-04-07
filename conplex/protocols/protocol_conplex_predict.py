@@ -83,13 +83,12 @@ class ProtConPLexPrediction(EMProtocol):
     pwchemPlugin.runScript(self, 'obabel_IO.py', args, env=OPENBABEL_DIC, cwd=smiDir)
 
   def predictStep(self):
-    smisDic = self.getInputSMIs()
     protSeqsDic = self.getInputSeqs()
 
     argFile = os.path.abspath(self._getExtraPath('inputConPLex.tsv'))
     with open(argFile, 'w') as f:
       for seqName, seq in protSeqsDic.items():
-        for smiName, smi in smisDic.items():
+        for smiName, smi in self.yieldInputSMIs():
           f.write(f'{seqName}\t{smiName}\t{seq}\t{smi}\n')
 
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
@@ -183,6 +182,19 @@ class ProtConPLexPrediction(EMProtocol):
       smisDic = inLib.getLibraryMap(inverted=True)
 
     return smisDic
+
+  def yieldInputSMIs(self):
+    '''Yield the smi mapping dictionary {smiName: smi} items
+    '''
+    if not self.useLibrary.get():
+      iDir = self.getInputSMIDir()
+      for file in os.listdir(iDir):
+        with open(os.path.join(iDir, file)) as f:
+          smi, title = f.readline().split()
+          yield title, smi.strip()
+    else:
+      inLib = self.inputLibrary.get()
+      yield from inLib.yieldLibraryMapItems(inverted=True)
 
   def getInputSeqs(self):
     seqsDic = {}
