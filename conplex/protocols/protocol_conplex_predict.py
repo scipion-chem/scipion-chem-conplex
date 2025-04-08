@@ -32,9 +32,12 @@ from pyworkflow.protocol import params
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import OPENBABEL_DIC
 from pwchem.objects import SequenceChem, SetOfSequencesChem, SmallMoleculesLibrary
+from pwchem.utils import concatThreadFiles
 
 from .. import Plugin as conplexPlugin
 from ..constants import CONPLEX_DIC
+
+program = f'{pwchemPlugin.getEnvActivationCommand(CONPLEX_DIC)} && conplex-dti predict '
 
 class ProtConPLexPrediction(EMProtocol):
   """Run a prediction using a ConPLex trained model over a set of proteins and ligands"""
@@ -59,6 +62,8 @@ class ProtConPLexPrediction(EMProtocol):
     iGroup.addParam('inputSmallMols', params.PointerParam, pointerClass="SetOfSmallMolecules",
                     label='Input small molecules: ', condition='not useLibrary',
                     help='Set of small molecules to input the model for predicting their interactions')
+    iGroup.addParam('batchSize', params.IntParam, label='Batch size: ', default=100000,
+                    expertLevel=params.LEVEL_ADVANCED, help='Batch size for running conplex in batches')
 
     mGroup = form.addGroup('Model')
     mGroup.addParam('modelName', params.EnumParam, choices=conplexPlugin.getLocalModels(),
@@ -82,23 +87,41 @@ class ProtConPLexPrediction(EMProtocol):
       format(molDir, '*', smiDir)
     pwchemPlugin.runScript(self, 'obabel_IO.py', args, env=OPENBABEL_DIC, cwd=smiDir)
 
+  def writeInputConplex(self, argFile, textLines):
+    with open(argFile, 'w') as f:
+      f.write(''.join(textLines))
+
+  def performConplex(self, argFile, modelPath, it=0):
+    args = f"--data-file {argFile} --model-path {modelPath} --outfile results_{it}.tsv"
+    self.runJob(program, args, cwd=self._getPath())
+
   def predictStep(self):
     protSeqsDic = self.getInputSeqs()
 
-    argFile = os.path.abspath(self._getExtraPath('inputConPLex.tsv'))
-    with open(argFile, 'w') as f:
-      for seqName, seq in protSeqsDic.items():
-        for smiName, smi in self.yieldInputSMIs():
-          f.write(f'{seqName}\t{smiName}\t{seq}\t{smi}\n')
-
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
-    program = f'{pwchemPlugin.getEnvActivationCommand(CONPLEX_DIC)} && conplex-dti predict '
-    args = f"--data-file {argFile} --model-path {modelPath} --outfile results.tsv"
-    self.runJob(program, args, cwd=self._getPath())
+
+    it, textLines = 0, []
+    for seqName, seq in protSeqsDic.items():
+      for i, (smiName, smi) in enumerate(self.yieldInputSMIs()):
+        textLines += [f'{seqName}\t{smiName}\t{seq}\t{smi}\n']
+
+        if len(textLines) % self.batchSize.get() == 0:
+          argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
+          self.writeInputConplex(argFile, textLines)
+          self.performConplex(argFile, modelPath, it)
+          textLines, it = [], it + 1
+
+    if len(textLines) > 0:
+      argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
+      self.writeInputConplex(argFile, textLines)
+      self.performConplex(argFile, modelPath, it)
+
 
   def createOutputStep(self):
     inSeqs = self.inputSequences.get()
-    intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
+    resFile = self.getInteractionsFile()
+    concatThreadFiles(resFile)
+    intDic, _, _ = self.parseInteractionsFile(resFile)
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
     for seq in inSeqs:
