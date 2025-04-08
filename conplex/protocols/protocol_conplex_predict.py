@@ -48,6 +48,9 @@ class ProtConPLexPrediction(EMProtocol):
     self.stepsExecutionMode = params.STEPS_PARALLEL
 
   def _defineParams(self, form):
+    form.addHidden(params.GPU_LIST, params.StringParam, default='0', label="Choose GPU IDs",
+                   help="Add a list of GPU devices that can be used")
+
     form.addSection(label='Input')
     iGroup = form.addGroup('Input')
     iGroup.addParam('inputSequences', params.PointerParam, pointerClass="SetOfSequences",
@@ -70,12 +73,27 @@ class ProtConPLexPrediction(EMProtocol):
                     label='Model to use: ', default=0,
                     help='Choose a model from those in {}'.format(conplexPlugin.getModelsDir()))
 
-  def _insertAllSteps(self):
-    if not self.useLibrary.get():
-      self._insertFunctionStep(self.convertStep)
-    self._insertFunctionStep(self.predictStep)
-    self._insertFunctionStep(self.createOutputStep)
+    form.addParallelSection(threads=4, mpi=1)
 
+  def _insertAllSteps(self):
+    cSteps, pSteps = [], []
+    if not self.useLibrary.get():
+      cSteps.append(self._insertFunctionStep(self.convertStep))
+
+    devices = self.getDevices()
+    iStep = self._insertFunctionStep(self.createInputStep, prerequisites=cSteps)
+    for it in range(self.getInputIterations()):
+      gpuIdx = devices[it % len(devices)]
+      pSteps.append(self._insertFunctionStep(self.predictStep, it, gpuIdx, prerequisites=[iStep], needsGPU=False))
+    self._insertFunctionStep(self.createOutputStep, prerequisites=pSteps)
+
+  def getDevices(self):
+    gpuIdxs = getattr(self, params.GPU_LIST).get()
+    if not gpuIdxs.strip():
+      gpuIdxs = [0]
+    else:
+      gpuIdxs = [idx.strip() for idx in gpuIdxs.split(',')]
+    return gpuIdxs
 
   def convertStep(self):
     smiDir = self.getInputSMIDir()
@@ -87,19 +105,8 @@ class ProtConPLexPrediction(EMProtocol):
       format(molDir, '*', smiDir)
     pwchemPlugin.runScript(self, 'obabel_IO.py', args, env=OPENBABEL_DIC, cwd=smiDir)
 
-  def writeInputConplex(self, argFile, textLines):
-    with open(argFile, 'w') as f:
-      f.write(''.join(textLines))
-
-  def performConplex(self, argFile, modelPath, it=0):
-    args = f"--data-file {argFile} --model-path {modelPath} --outfile results_{it}.tsv"
-    self.runJob(program, args, cwd=self._getPath())
-
-  def predictStep(self):
+  def createInputStep(self):
     protSeqsDic = self.getInputSeqs()
-
-    modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
-
     it, textLines = 0, []
     for seqName, seq in protSeqsDic.items():
       for i, (smiName, smi) in enumerate(self.yieldInputSMIs()):
@@ -108,14 +115,20 @@ class ProtConPLexPrediction(EMProtocol):
         if len(textLines) % self.batchSize.get() == 0:
           argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
           self.writeInputConplex(argFile, textLines)
-          self.performConplex(argFile, modelPath, it)
           textLines, it = [], it + 1
 
     if len(textLines) > 0:
       argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
       self.writeInputConplex(argFile, textLines)
-      self.performConplex(argFile, modelPath, it)
 
+  def predictStep(self, it, gpuIdx):
+    modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
+    argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
+    oDir = self._getPath(f'prediction_{it}')
+    os.mkdir(oDir)
+
+    oFile = self.performConplex(argFile, modelPath, oDir, it, gpuIdx)
+    os.rename(os.path.join(oDir, oFile), self._getPath(oFile))
 
   def createOutputStep(self):
     inSeqs = self.inputSequences.get()
@@ -190,6 +203,22 @@ class ProtConPLexPrediction(EMProtocol):
   def getInputSMIDir(self):
     return os.path.abspath(self._getExtraPath('inputSMI'))
 
+  def getInputLen(self):
+    if not self.useLibrary.get():
+      inLen = len(self.inputSmallMols.get())
+    else:
+      inLib = self.inputLibrary.get()
+      print('inlib: ', inLib) #somehow protocol crashes without this print
+      inLen = inLib.getLength()
+    return inLen
+
+  def getInputIterations(self):
+    inLen, nBatch = self.getInputLen(), self.batchSize.get()
+    nIts = inLen // nBatch
+    if nIts != inLen / nBatch:
+      nIts += 1
+    return nIts
+
   def getInputSMIs(self):
     '''Return the smi mapping dictionary {smiName: smi}
     '''
@@ -224,6 +253,18 @@ class ProtConPLexPrediction(EMProtocol):
     for seq in self.inputSequences.get():
       seqsDic[seq.getSeqName()] = seq.getSequence()
     return seqsDic
+
+  def writeInputConplex(self, argFile, textLines):
+    with open(argFile, 'w') as f:
+      f.write(''.join(textLines))
+
+  def performConplex(self, argFile, modelPath, oDir=None, it=0, gpuIdx=0):
+    if oDir is None:
+      oDir = self._getPath()
+    oFile = f'results_{it}.tsv'
+    args = f"--data-file {argFile} --model-path {modelPath} --outfile {oFile} --device {gpuIdx}"
+    self.runJob(program, args, cwd=oDir)
+    return oFile
 
   def getInteractionsFile(self):
     return self.getPath('results.tsv')
