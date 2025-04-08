@@ -32,7 +32,7 @@ from pyworkflow.protocol import params
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import OPENBABEL_DIC
 from pwchem.objects import SequenceChem, SetOfSequencesChem, SmallMoleculesLibrary
-from pwchem.utils import concatThreadFiles
+from pwchem.utils import concatThreadFiles, removeThreadDirectories
 
 from .. import Plugin as conplexPlugin
 from ..constants import CONPLEX_DIC
@@ -87,14 +87,6 @@ class ProtConPLexPrediction(EMProtocol):
       pSteps.append(self._insertFunctionStep(self.predictStep, it, gpuIdx, prerequisites=[iStep], needsGPU=False))
     self._insertFunctionStep(self.createOutputStep, prerequisites=pSteps)
 
-  def getDevices(self):
-    gpuIdxs = getattr(self, params.GPU_LIST).get()
-    if not gpuIdxs.strip():
-      gpuIdxs = [0]
-    else:
-      gpuIdxs = [idx.strip() for idx in gpuIdxs.split(',')]
-    return gpuIdxs
-
   def convertStep(self):
     smiDir = self.getInputSMIDir()
     if not os.path.exists(smiDir):
@@ -113,17 +105,17 @@ class ProtConPLexPrediction(EMProtocol):
         textLines += [f'{seqName}\t{smiName}\t{seq}\t{smi}\n']
 
         if len(textLines) % self.batchSize.get() == 0:
-          argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
+          argFile = os.path.abspath(self._getTmpPath(f'inputConPLex_{it}.tsv'))
           self.writeInputConplex(argFile, textLines)
           textLines, it = [], it + 1
 
     if len(textLines) > 0:
-      argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
+      argFile = os.path.abspath(self._getTmpPath(f'inputConPLex_{it}.tsv'))
       self.writeInputConplex(argFile, textLines)
 
   def predictStep(self, it, gpuIdx):
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
-    argFile = os.path.abspath(self._getExtraPath(f'inputConPLex_{it}.tsv'))
+    argFile = os.path.abspath(self._getTmpPath(f'inputConPLex_{it}.tsv'))
     oDir = self._getPath(f'prediction_{it}')
     os.mkdir(oDir)
 
@@ -134,6 +126,7 @@ class ProtConPLexPrediction(EMProtocol):
     inSeqs = self.inputSequences.get()
     resFile = self.getInteractionsFile()
     concatThreadFiles(resFile)
+    removeThreadDirectories('prediction_', self._getPath())
     intDic, _, _ = self.parseInteractionsFile(resFile)
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
@@ -191,6 +184,14 @@ class ProtConPLexPrediction(EMProtocol):
 
 
   ############## UTILS ########################
+  def getDevices(self):
+    gpuIdxs = getattr(self, params.GPU_LIST).get()
+    if not gpuIdxs.strip():
+      gpuIdxs = [0]
+    else:
+      gpuIdxs = [idx.strip() for idx in gpuIdxs.split(',')]
+    return gpuIdxs
+
   def copyInputMolsInDir(self):
     oDir = os.path.abspath(self._getTmpPath('inMols'))
     if not os.path.exists(oDir):
@@ -201,7 +202,7 @@ class ProtConPLexPrediction(EMProtocol):
     return oDir
 
   def getInputSMIDir(self):
-    return os.path.abspath(self._getExtraPath('inputSMI'))
+    return os.path.abspath(self._getTmpPath('inputSMI'))
 
   def getInputLen(self):
     if not self.useLibrary.get():
