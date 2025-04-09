@@ -24,7 +24,7 @@
 # *
 # **************************************************************************
 
-import os
+import os, shutil
 
 from pwem.protocols import EMProtocol
 from pyworkflow.protocol import params
@@ -117,9 +117,13 @@ class ProtConPLexPrediction(EMProtocol):
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
     argFile = os.path.abspath(self._getTmpPath(f'inputConPLex_{it}.tsv'))
     oDir = self._getPath(f'prediction_{it}')
+    if os.path.exists(oDir):
+      shutil.rmtree(oDir)
     os.mkdir(oDir)
 
-    oFile = self.performConplex(argFile, modelPath, oDir, it, gpuIdx)
+    localModelPath = os.path.join(oDir, self.getEnumText('modelName'))
+    shutil.copy(modelPath, localModelPath)
+    oFile = self.performConplex(argFile, localModelPath, oDir, it, gpuIdx)
     os.rename(os.path.join(oDir, oFile), self._getPath(oFile))
 
   def createOutputStep(self):
