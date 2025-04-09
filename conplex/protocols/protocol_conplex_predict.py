@@ -116,7 +116,7 @@ class ProtConPLexPrediction(EMProtocol):
   def predictStep(self, it, gpuIdx):
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
     argFile = os.path.abspath(self._getTmpPath(f'inputConPLex_{it}.tsv'))
-    oDir = self._getPath(f'prediction_{it}')
+    oDir = os.path.abspath(self._getPath(f'prediction_{it}'))
     if os.path.exists(oDir):
       shutil.rmtree(oDir)
     os.mkdir(oDir)
