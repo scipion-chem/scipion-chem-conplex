@@ -48,6 +48,10 @@ class ProtConPLexPrediction(EMProtocol):
     self.stepsExecutionMode = params.STEPS_PARALLEL
 
   def _defineParams(self, form):
+    form.addHidden(params.USE_GPU, params.BooleanParam, default=True,
+                   label="Use GPU for execution: ",
+                   help="This protocol has both CPU and GPU implementation.\
+                                             Select the one you want to use.")
     form.addHidden(params.GPU_LIST, params.StringParam, default='0', label="Choose GPU IDs",
                    help="Add a list of GPU devices that can be used")
 
@@ -189,11 +193,14 @@ class ProtConPLexPrediction(EMProtocol):
 
   ############## UTILS ########################
   def getDevices(self):
-    gpuIdxs = getattr(self, params.GPU_LIST).get()
-    if not gpuIdxs.strip():
-      gpuIdxs = [0]
+    if getattr(self, params.USE_GPU).get():
+      gpuIdxs = getattr(self, params.GPU_LIST).get()
+      if not gpuIdxs.strip():
+        gpuIdxs = [0]
+      else:
+        gpuIdxs = [idx.strip() for idx in gpuIdxs.split(',')]
     else:
-      gpuIdxs = [idx.strip() for idx in gpuIdxs.split(',')]
+      gpuIdxs = ['cpu']
     return gpuIdxs
 
   def copyInputMolsInDir(self):
