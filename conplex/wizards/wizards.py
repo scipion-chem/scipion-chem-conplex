@@ -28,5 +28,11 @@
 """
 """
 
+from pwchem.wizards import SelectChainWizardQT
 
+from conplex.protocols import ProtConPLexPrediction
 
+SelectChainWizardQT().addTarget(protocol=ProtConPLexPrediction,
+                                targets=['inChain'],
+                                inputs=['inputAS'],
+                                outputs=['inChain'])

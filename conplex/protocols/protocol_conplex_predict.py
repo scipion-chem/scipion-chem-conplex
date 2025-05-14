@@ -24,10 +24,12 @@
 # *
 # **************************************************************************
 
-import os, shutil
+import os, shutil, json
+
+from pyworkflow.protocol import params
 
 from pwem.protocols import EMProtocol
-from pyworkflow.protocol import params
+from pwem.convert.atom_struct import AtomicStructHandler
 
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import OPENBABEL_DIC
@@ -37,6 +39,7 @@ from pwchem.utils import concatThreadFiles, removeThreadDirectories
 from .. import Plugin as conplexPlugin
 from ..constants import CONPLEX_DIC
 
+SEQ, AS, SEQS = 0, 1, 2
 program = f'{pwchemPlugin.getEnvActivationCommand(CONPLEX_DIC)} && conplex-dti predict '
 
 class ProtConPLexPrediction(EMProtocol):
@@ -56,13 +59,25 @@ class ProtConPLexPrediction(EMProtocol):
                    help="Add a list of GPU devices that can be used")
 
     form.addSection(label='Input')
-    iGroup = form.addGroup('Input')
+    iGroup = form.addGroup('Input Sequence')
+    iGroup.addParam('inSeqForm', params.EnumParam, label='Input sequence(s) as: ', default=SEQ,
+                    choices=['Sequence', 'AtomStruct', 'SetOfSequences'],
+                    help='How to input the input sequence(s)')
+    iGroup.addParam('inputSequence', params.PointerParam, pointerClass="Sequence",
+                    label='Input protein sequence: ', condition=f'inSeqForm=={SEQ}',
+                    help="Protein sequence to perform the screening on")
+    iGroup.addParam('inputAS', params.PointerParam, pointerClass="AtomStruct",
+                    label='Input protein structure: ', condition=f'inSeqForm=={AS}',
+                    help="Protein structure to perform the screening on")
+    iGroup.addParam('inChain', params.StringParam, label='Chain for input: ', condition=f'inSeqForm=={AS}',
+                    help='Specify the protein chain to use as input')
     iGroup.addParam('inputSequences', params.PointerParam, pointerClass="SetOfSequences",
-                    label='Input protein sequences: ',
+                    label='Input protein sequences: ', condition=f'inSeqForm=={SEQS}',
                     help="Set of protein sequences to perform the screening on")
-    iGroup.addParam('useLibrary', params.BooleanParam, label='Use library as input : ', default=False,
-                    help='Whether to use a SMI library SmallMoleculesLibrary object as input')
 
+    iGroup = form.addGroup('Input Ligands')
+    iGroup.addParam('useLibrary', params.BooleanParam, label='Use library as input : ', default=True,
+                    help='Whether to use a SMI library SmallMoleculesLibrary object as input')
     iGroup.addParam('inputLibrary', params.PointerParam, pointerClass="SmallMoleculesLibrary",
                     label='Input library: ', condition='useLibrary',
                     help="Input Small molecules library to predict")
@@ -131,17 +146,15 @@ class ProtConPLexPrediction(EMProtocol):
     os.rename(os.path.join(oDir, oFile), self._getPath(oFile))
 
   def createOutputStep(self):
-    inSeqs = self.inputSequences.get()
+    protSeqsDic = self.getInputSeqs()
     resFile = self.getInteractionsFile()
     concatThreadFiles(resFile)
     removeThreadDirectories('prediction_', self._getPath())
     intDic, _, _ = self.parseInteractionsFile(resFile)
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
-    for seq in inSeqs:
-      seqName = str(seq.getSeqName())
-      outSeq = SequenceChem()
-      outSeq.copy(seq)
+    for seqName, seq in protSeqsDic.items():
+      outSeq = SequenceChem(name=seqName, sequence=seq)
 
       seqIntDic = intDic[seqName]
       outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
@@ -157,9 +170,9 @@ class ProtConPLexPrediction(EMProtocol):
     self._defineOutputs(outputSequences=outSeqs)
 
     # Mols output
-    if len(inSeqs) == 1:
-      inSeq = inSeqs.getFirstItem()
-      scoreDic = intDic[str(inSeq.getSeqName())]
+    if len(protSeqsDic) == 1:
+      seqName = list(protSeqsDic.keys())[0]
+      scoreDic = intDic[seqName]
 
       if self.useLibrary.get():
         inLib = self.inputLibrary.get()
@@ -262,8 +275,21 @@ class ProtConPLexPrediction(EMProtocol):
 
   def getInputSeqs(self):
     seqsDic = {}
-    for seq in self.inputSequences.get():
+    if self.inSeqForm.get() == SEQ:
+      seq = self.inputSequence.get()
       seqsDic[seq.getSeqName()] = seq.getSequence()
+    elif self.inSeqForm.get() == AS:
+      inAS = self.inputAS.get()
+      seqName = os.path.basename(inAS.getFileName())
+      handler = AtomicStructHandler(inAS.getFileName())
+      struct = json.loads(getattr(self, 'inChain').get())  # From wizard dictionary
+      chain_id, modelId = struct["chain"].upper().strip(), int(struct["model"])
+      seq = str(handler.getSequenceFromChain(modelID=modelId, chainID=chain_id))
+
+      seqsDic[seqName] = seq
+    elif self.inSeqForm.get() == SEQS:
+      for seq in self.inputSequences.get():
+        seqsDic[seq.getSeqName()] = seq.getSequence()
     return seqsDic
 
   def writeInputConplex(self, argFile, textLines):
