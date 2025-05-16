@@ -141,15 +141,15 @@ class ProtConPLexPrediction(EMProtocol):
     os.mkdir(oDir)
 
     localModelPath = os.path.join(oDir, self.getEnumText('modelName'))
-    shutil.copy(modelPath, localModelPath)
+    os.link(modelPath, localModelPath)
     oFile = self.performConplex(argFile, localModelPath, oDir, it, gpuIdx)
     os.rename(os.path.join(oDir, oFile), self._getPath(oFile))
+    shutil.rmtree(oDir)
 
   def createOutputStep(self):
     protSeqsDic = self.getInputSeqs()
     resFile = self.getInteractionsFile()
     concatThreadFiles(resFile)
-    removeThreadDirectories('prediction_', self._getPath())
     intDic, _, _ = self.parseInteractionsFile(resFile)
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
