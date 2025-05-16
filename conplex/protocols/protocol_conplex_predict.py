@@ -141,7 +141,7 @@ class ProtConPLexPrediction(EMProtocol):
     os.mkdir(oDir)
 
     localModelPath = os.path.join(oDir, self.getEnumText('modelName'))
-    os.link(modelPath, localModelPath)
+    shutil.copy(modelPath, localModelPath)
     oFile = self.performConplex(argFile, localModelPath, oDir, it, gpuIdx)
     os.rename(os.path.join(oDir, oFile), self._getPath(oFile))
     shutil.rmtree(oDir)
