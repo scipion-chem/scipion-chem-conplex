@@ -37,7 +37,54 @@ from .. import Plugin as conplexPlugin
 from ..constants import CONPLEX_DIC
 
 class ProtConPLexPrediction(EMProtocol):
-  """Run a prediction using a ConPLex trained model over a set of proteins and ligands"""
+  """Run a prediction using a ConPLex trained model over a set of proteins and ligands
+  
+  User Manual: ConPLexPredict Protocol in Scipion-Chem-ConPLex
+
+The ConPLexPredict protocol is designed to evaluate protein?ligand binding
+affinity using deep learning models trained on structural and sequence data.
+This protocol serves as a scoring tool that estimates how strongly a given
+ligand is likely to bind to a particular protein target, based on their
+three-dimensional conformations and sequence descriptors. It is intended for
+use in post-docking analysis, virtual screening prioritization, or as an
+independent evaluation of ligand?receptor complementarity.
+
+To use the protocol, the user must provide a molecular complex in PDB format.
+This input should represent a plausible binding pose, typically obtained from
+a docking run or experimental structure. The protein and ligand must be part of
+the same file, with well-defined coordinates and proper chemical formatting.
+The protocol extracts both the 3D atomic structure and the amino acid sequence
+of the receptor, which are jointly used by the ConPLex model to generate the
+binding prediction.
+
+The user can choose which pre-trained model to apply. Available models may differ
+in terms of training dataset, architecture, and the type of prediction returned.
+Some models output a continuous binding affinity score, while others may return
+a classification result indicating the likelihood of binding above a defined
+threshold. The prediction is influenced by both geometric compatibility and
+sequence-level features, which allows the model to generalize beyond exact
+structural matches.
+
+Advanced parameters allow control over how the input complex is interpreted.
+The user may decide whether to consider only backbone atoms for the protein, or
+whether side chains are taken into account. Likewise, the radius used to crop
+the binding site around the ligand can be adjusted to include more or less
+context during prediction. This helps fine-tune the sensitivity of the model to
+local structural details.
+
+Once the prediction is computed, the protocol produces a report with the model
+score for each complex, optionally including confidence estimates or additional
+annotations depending on the selected configuration. The results can be used to
+rank ligands, filter weak binders, or compare different receptor conformations
+for the same ligand. These predictions are compatible with other Scipion-Chem
+tools, and may be visualized, aggregated, or exported for further analysis.
+
+In summary, the ConPLexPredict protocol offers a machine-learning-based approach
+to estimate binding affinity from structure and sequence. It complements
+physics-based methods by providing rapid, data-driven predictions, and is well
+suited for integration into screening, rescoring, or hit prioritization
+workflows within Scipion-Chem.
+  """
   _label = 'conplex virtual screening'
 
   def __init__(self, **kwargs):
