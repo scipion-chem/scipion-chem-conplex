@@ -109,7 +109,17 @@ class ProtConPLexPrediction(EMProtocol):
 
       seqIntDic = intDic[seqName]
       outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
-      outSeqs.append(outSeq)
+
+      for mol, score in seqIntDic.items():
+          outSeqIndiv = SequenceChem()
+          outSeqIndiv.copy(outSeq, copyId=False)
+
+          outSeqIndiv.setInteractScore(score)
+          outSeqIndiv.setInteractMol(mol)
+
+          outSeqs.append(outSeqIndiv)
+
+      #outSeqs.append(outSeq)
 
       # outSeqs.setInteractScoresDic(intDic)
     if not self.useLibrary.get():
