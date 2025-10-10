@@ -23,7 +23,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-
+import json
 import os
 
 from pwem.protocols import EMProtocol
@@ -59,6 +59,7 @@ class ProtConPLexPrediction(EMProtocol):
     iGroup.addParam('inputSmallMols', params.PointerParam, pointerClass="SetOfSmallMolecules",
                     label='Input small molecules: ', condition='not useLibrary',
                     help='Set of small molecules to input the model for predicting their interactions')
+
 
     mGroup = form.addGroup('Model')
     mGroup.addParam('modelName', params.EnumParam, choices=conplexPlugin.getLocalModels(),
@@ -102,16 +103,32 @@ class ProtConPLexPrediction(EMProtocol):
     intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
+    output_file = self._getExtraPath("scoresFile.json")
+
+    new_entries = []
     for seq in inSeqs:
       seqName = seq.getSeqName()
       outSeq = SequenceChem()
       outSeq.copy(seq)
 
-      seqIntDic = intDic[seqName]
-      outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
+      #seqIntDic = intDic[seqName]
+      #outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
+      outSeq.setInteractScoresFile(output_file)
       outSeqs.append(outSeq)
 
-      # outSeqs.setInteractScoresDic(intDic)
+      seqMolScores = intDic[seqName]
+      mols_dict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
+      entry = {
+          "sequence": seqName,
+          "molecules": mols_dict
+      }
+      new_entries.append(entry)
+
+    data = outSeqs.getInteractScoresDic()
+    for outSeq in outSeqs:
+        output_file = outSeq.getInteractScoresFile()
+        outSeq.setInteractScoresDic(new_entries, data, output_file)
+
     if not self.useLibrary.get():
       outMols = self.inputSmallMols.get()
     else:
