@@ -111,12 +111,11 @@ class ProtConPLexPrediction(EMProtocol):
       outSeq = SequenceChem()
       outSeq.copy(seq)
 
-      #seqIntDic = intDic[seqName]
-      #outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
-      outSeq.setInteractScoresFile(output_file)
       outSeqs.append(outSeq)
+      outSeq.setInteractScoresFile(output_file)
 
       seqMolScores = intDic[seqName]
+
       mols_dict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
       entry = {
           "sequence": seqName,
@@ -124,17 +123,31 @@ class ProtConPLexPrediction(EMProtocol):
       }
       new_entries.append(entry)
 
-    data = outSeqs.getInteractScoresDic()
-    for outSeq in outSeqs:
-        output_file = outSeq.getInteractScoresFile()
-        outSeq.setInteractScoresDic(new_entries, data, output_file)
+    try:
+        with open(output_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {"entries": []}
+
+    outSeqs.setInteractScoresDic(new_entries, data, output_file)
+    print(f"Saved JSON to {output_file}")
 
     if not self.useLibrary.get():
       outMols = self.inputSmallMols.get()
     else:
       outMols = self.inputLibrary.get()
 
+    # Collect all score types from new_entries
+    scoreTypes = set()
+    for entry in new_entries:
+        for mol_scores in entry["molecules"].values():
+            for key in mol_scores.keys():
+                if key.startswith("score_"):
+                    scoreTypes.add(key.split("_", 1)[1])
+
+
     outSeqs.setInteractMols(mols=outMols)
+    outSeqs.setScoreTypes(scores=list(scoreTypes))
     self._defineOutputs(outputSequences=outSeqs)
 
     # Mols output
@@ -205,7 +218,7 @@ class ProtConPLexPrediction(EMProtocol):
   def getInteractionsFile(self):
     return self.getPath('results.tsv')
 
-  def parseInteractionsFile(self, iFile):
+  def parseInteractionsFile(self, iFile): #todo change this
     '''Return a dictionary of the form {seqName: {molName: score}}'''
     intDic, molNames = {}, set([])
     with open(iFile) as f:
