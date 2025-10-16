@@ -112,7 +112,6 @@ class ProtConPLexPrediction(EMProtocol):
       outSeq.copy(seq)
 
       outSeqs.append(outSeq)
-      outSeq.setInteractScoresFile(output_file)
 
       seqMolScores = intDic[seqName]
 
@@ -148,6 +147,8 @@ class ProtConPLexPrediction(EMProtocol):
 
     outSeqs.setInteractMols(mols=outMols)
     outSeqs.setScoreTypes(scores=list(scoreTypes))
+    for outSeq in outSeqs:
+        outSeq.setInteractScoresFile(str(output_file))
     self._defineOutputs(outputSequences=outSeqs)
 
     # Mols output
