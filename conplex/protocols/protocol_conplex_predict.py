@@ -103,46 +103,46 @@ class ProtConPLexPrediction(EMProtocol):
     intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
-    output_file = self._getExtraPath("scoresFile.json")
+    outputFile = self._getExtraPath("scoresFile.json")
 
-    new_entries = []
+    newEntries = []
     for seq in inSeqs:
       seqName = seq.getSeqName()
       outSeq = SequenceChem()
       outSeq.copy(seq)
-      outSeq.setInteractScoresFile(output_file)
+      outSeq.setInteractScoresFile(outputFile)
 
       outSeqs.append(outSeq)
 
       seqMolScores = intDic[seqName]
 
-      mols_dict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
+      molsDict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
       entry = {
           "sequence": seqName,
-          "molecules": mols_dict
+          "molecules": molsDict
       }
-      new_entries.append(entry)
+      newEntries.append(entry)
 
     try:
-        with open(output_file, "r", encoding="utf-8") as f:
+        with open(outputFile, "r", encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
         data = {"entries": []}
 
-    outSeqs.setInteractScoresDic(new_entries, data, output_file)
+    outSeqs.setInteractScoresDic(newEntries, data, outputFile)
 
-    print(f"Saved JSON to {output_file}")
+    print(f"Saved JSON to {outputFile}")
 
     if not self.useLibrary.get():
       outMols = self.inputSmallMols.get()
     else:
       outMols = self.inputLibrary.get()
 
-    # Collect all score types from new_entries
+    # Collect all score types from newEntries
     scoreTypes = set()
-    for entry in new_entries:
-        for mol_scores in entry["molecules"].values():
-            for key in mol_scores.keys():
+    for entry in newEntries:
+        for molScores in entry["molecules"].values():
+            for key in molScores.keys():
                 if key.startswith("score_"):
                     scoreTypes.add(key.split("_", 1)[1])
 
@@ -150,7 +150,7 @@ class ProtConPLexPrediction(EMProtocol):
     outSeqs.setInteractMols(mols=outMols)
     outSeqs.setScoreTypes(scores=list(scoreTypes))
     for outSeq in outSeqs:
-        outSeq.setInteractScoresFile(str(output_file))
+        outSeq.setInteractScoresFile(str(outputFile))
     self._defineOutputs(outputSequences=outSeqs)
 
     # Mols output
@@ -221,7 +221,7 @@ class ProtConPLexPrediction(EMProtocol):
   def getInteractionsFile(self):
     return self.getPath('results.tsv')
 
-  def parseInteractionsFile(self, iFile): #todo change this
+  def parseInteractionsFile(self, iFile):
     '''Return a dictionary of the form {seqName: {molName: score}}'''
     intDic, molNames = {}, set([])
     with open(iFile) as f:
