@@ -110,6 +110,7 @@ class ProtConPLexPrediction(EMProtocol):
       seqName = seq.getSeqName()
       outSeq = SequenceChem()
       outSeq.copy(seq)
+      outSeq.setInteractScoresFile(output_file)
 
       outSeqs.append(outSeq)
 
@@ -129,6 +130,7 @@ class ProtConPLexPrediction(EMProtocol):
         data = {"entries": []}
 
     outSeqs.setInteractScoresDic(new_entries, data, output_file)
+
     print(f"Saved JSON to {output_file}")
 
     if not self.useLibrary.get():
