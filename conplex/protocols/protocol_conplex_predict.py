@@ -23,7 +23,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-
+import json
 import os
 
 from pwem.protocols import EMProtocol
@@ -59,6 +59,7 @@ class ProtConPLexPrediction(EMProtocol):
     iGroup.addParam('inputSmallMols', params.PointerParam, pointerClass="SetOfSmallMolecules",
                     label='Input small molecules: ', condition='not useLibrary',
                     help='Set of small molecules to input the model for predicting their interactions')
+
 
     mGroup = form.addGroup('Model')
     mGroup.addParam('modelName', params.EnumParam, choices=conplexPlugin.getLocalModels(),
@@ -102,22 +103,52 @@ class ProtConPLexPrediction(EMProtocol):
     intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
 
     outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
+    outputFile = self._getExtraPath("scoresFile.json")
+
+    newEntries = []
     for seq in inSeqs:
       seqName = seq.getSeqName()
       outSeq = SequenceChem()
       outSeq.copy(seq)
+      outSeq.setInteractScoresFile(outputFile)
 
-      seqIntDic = intDic[seqName]
-      outSeq.setInteractScoresDic(seqIntDic, self._getExtraPath(f'{seqName}_ConPLex_interactions.pickle'))
       outSeqs.append(outSeq)
 
-      # outSeqs.setInteractScoresDic(intDic)
+      seqMolScores = intDic[seqName]
+
+      molsDict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
+      entry = {
+          "sequence": seqName,
+          "molecules": molsDict
+      }
+      newEntries.append(entry)
+
+    try:
+        with open(outputFile, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {"entries": []}
+
+    outSeqs.setInteractScoresDic(newEntries, data, outputFile)
+
+    print(f"Saved JSON to {outputFile}")
+
     if not self.useLibrary.get():
       outMols = self.inputSmallMols.get()
     else:
       outMols = self.inputLibrary.get()
 
+    # Collect all score types from newEntries
+    scoreTypes = set()
+    for entry in newEntries:
+        for molScores in entry["molecules"].values():
+            for key in molScores.keys():
+                if key.startswith("score_"):
+                    scoreTypes.add(key.split("_", 1)[1])
+
+
     outSeqs.setInteractMols(mols=outMols)
+    outSeqs.setScoreTypes(scores=list(scoreTypes))
     self._defineOutputs(outputSequences=outSeqs)
 
     # Mols output
