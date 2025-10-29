@@ -149,8 +149,6 @@ class ProtConPLexPrediction(EMProtocol):
 
     outSeqs.setInteractMols(mols=outMols)
     outSeqs.setScoreTypes(scores=list(scoreTypes))
-    for outSeq in outSeqs:
-        outSeq.setInteractScoresFile(str(outputFile))
     self._defineOutputs(outputSequences=outSeqs)
 
     # Mols output
