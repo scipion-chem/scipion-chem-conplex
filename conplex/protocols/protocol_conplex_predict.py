@@ -177,6 +177,7 @@ class ProtConPLexPrediction(EMProtocol):
                       scoreTypes.add(key.split("_", 1)[1])
 
       outSeqs.setScoreTypes(scores=list(scoreTypes))
+      outSeqs.setInteractScoresFile(outputFile)
 
       self._defineOutputs(outputSequences=outSeqs)
 
