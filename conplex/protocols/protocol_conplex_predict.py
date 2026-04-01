@@ -25,6 +25,7 @@
 # **************************************************************************
 import json
 import os
+import shutil
 
 from pwem.protocols import EMProtocol
 from pyworkflow.protocol import params
@@ -99,87 +100,123 @@ class ProtConPLexPrediction(EMProtocol):
     self.runJob(program, args, cwd=self._getPath())
 
   def createOutputStep(self):
-    inSeqs = self.inputSequences.get()
-    intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
+      import json
+      import os
 
-    outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
-    outputFile = self._getExtraPath("scoresFile.json")
+      inSeqs = self.inputSequences.get()
+      intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
 
-    newEntries = []
-    for seq in inSeqs:
-      seqName = seq.getSeqName()
-      outSeq = SequenceChem()
-      outSeq.copy(seq)
-      outSeq.setInteractScoresFile(outputFile)
+      outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
+      try:
+          outputFile = inSeqs.getInteractScoresFile()
+      except Exception:
+          outputFile = None
 
-      outSeqs.append(outSeq)
+      if not outputFile:
+          outputFile = self._getExtraPath("scoresFile.json")
 
-      seqMolScores = intDic[seqName]
-
-      molsDict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
-      entry = {
-          "sequence": seqName,
-          "molecules": molsDict
-      }
-      newEntries.append(entry)
-
-    try:
-        with open(outputFile, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        data = {"entries": []}
-
-    outSeqs.setInteractScoresDic(newEntries, data, outputFile)
-
-    print(f"Saved JSON to {outputFile}")
-
-    if not self.useLibrary.get():
-      outMols = self.inputSmallMols.get()
-    else:
-      outMols = self.inputLibrary.get()
-
-    # Collect all score types from newEntries
-    scoreTypes = set()
-    for entry in newEntries:
-        for molScores in entry["molecules"].values():
-            for key in molScores.keys():
-                if key.startswith("score_"):
-                    scoreTypes.add(key.split("_", 1)[1])
-
-
-    outSeqs.setInteractMols(mols=outMols)
-    outSeqs.setScoreTypes(scores=list(scoreTypes))
-    self._defineOutputs(outputSequences=outSeqs)
-
-    # Mols output
-    if len(inSeqs) == 1:
-      inSeq = inSeqs.getFirstItem()
-      scoreDic = intDic[inSeq.getSeqName()]
-
-      if self.useLibrary.get():
-        mapDic = self.inputLibrary.get().getLibraryMap(inverted=True)
-        oLibFile = self._getPath('outputLibrary.smi')
-        with open(oLibFile, 'w') as f:
-          for smiName, score in scoreDic.items():
-            f.write(f'{mapDic[smiName]}\t{smiName}\t{score}\n')
-
-        outputLib = SmallMoleculesLibrary(libraryFilename=oLibFile, origin='GCR')
-        self._defineOutputs(outputLibrary=outputLib)
-
+      if os.path.exists(outputFile):
+          with open(outputFile, "r", encoding="utf-8") as f:
+              data = json.load(f)
+          localFile = self._getExtraPath("scoresFile.json")
+          shutil.copy(outputFile, localFile)
+          outputFile = localFile
       else:
-        inSet = self.inputSmallMols.get()
-        outputSet = inSet.createCopy(self._getPath(), copyInfo=True)
-        for mol in inSet:
-          nMol = mol.clone()
-          molName = nMol.getMolName()
-          if molName in scoreDic:
-            score = scoreDic[molName]
-            setattr(nMol, '_conplexScore', params.Float(score))
-            outputSet.append(nMol)
-        outputSet.updateMolClass()
-        self._defineOutputs(outputSmallMolecules=outputSet)
+          data = {"entries": []}
 
+      existing = {
+          e.get("sequence"): e
+          for e in data.get("entries", [])
+          if e.get("sequence")
+      }
 
+      newEntries = []
+
+      for seq in inSeqs:
+          seqName = seq.getSeqName()
+
+          outSeq = SequenceChem()
+          outSeq.copy(seq)
+          outSeq.setInteractScoresFile(outputFile)
+
+          outSeqs.append(outSeq)
+
+          seqMolScores = intDic.get(seqName, {})
+
+          if seqName not in existing:
+              existing[seqName] = {
+                  "sequence": seqName,
+                  "molecules": {}
+              }
+
+          for mol, score in seqMolScores.items():
+              molEntry = existing[seqName]["molecules"].setdefault(mol, {})
+
+              molEntry["score_ConPlex"] = score
+
+          newEntries.append(existing[seqName])
+
+      data["entries"] = list(existing.values())
+
+      with open(outputFile, "w", encoding="utf-8") as f:
+          json.dump(data, f, indent=2)
+
+      print(f"Saved JSON to {outputFile}")
+
+      if not self.useLibrary.get():
+          outMols = self.inputSmallMols.get()
+      else:
+          outMols = self.inputLibrary.get()
+
+      outSeqs.setInteractMols(mols=outMols)
+      scoreTypes = set()
+      for entry in data["entries"]:
+          for molScores in entry["molecules"].values():
+              for key in molScores.keys():
+                  if key.startswith("score_"):
+                      scoreTypes.add(key.split("_", 1)[1])
+
+      outSeqs.setScoreTypes(scores=list(scoreTypes))
+
+      self._defineOutputs(outputSequences=outSeqs)
+
+      if len(inSeqs) == 1:
+          inSeq = inSeqs.getFirstItem()
+          scoreDic = intDic[inSeq.getSeqName()]
+
+          if self.useLibrary.get():
+
+              mapDic = self.inputLibrary.get().getLibraryMap(inverted=True)
+
+              oLibFile = self._getPath('outputLibrary.smi')
+
+              with open(oLibFile, 'w') as f:
+                  for smiName, score in scoreDic.items():
+                      f.write(f'{mapDic.get(smiName, smiName)}\t{smiName}\t{score}\n')
+
+              outputLib = SmallMoleculesLibrary(
+                  libraryFilename=oLibFile,
+                  origin='GCR'
+              )
+
+              self._defineOutputs(outputLibrary=outputLib)
+
+          else:
+
+              inSet = self.inputSmallMols.get()
+              outputSet = inSet.createCopy(self._getPath(), copyInfo=True)
+
+              for mol in inSet:
+                  nMol = mol.clone()
+                  molName = nMol.getMolName()
+
+                  if molName in scoreDic:
+                      score = scoreDic[molName]
+                      setattr(nMol, "_conplexScore", params.Float(score))
+                      outputSet.append(nMol)
+
+              outputSet.updateMolClass()
+              self._defineOutputs(outputSmallMolecules=outputSet)
 
   ############## UTILS ########################
   def copyInputMolsInDir(self):
