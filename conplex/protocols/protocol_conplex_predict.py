@@ -107,9 +107,10 @@ class ProtConPLexPrediction(EMProtocol):
       intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
 
       outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
-      try:
+
+      if hasattr(inSeqs, '_interactScoresFile') and getattr(inSeqs, '_interactScoresFile') is not None:
           outputFile = inSeqs.getInteractScoresFile()
-      except Exception:
+      else:
           outputFile = None
 
       if not outputFile:
