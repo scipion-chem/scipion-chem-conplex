@@ -24,6 +24,7 @@
 # *
 # **************************************************************************
 import json, os
+import shutil
 
 from pwem.protocols import EMProtocol
 from pyworkflow.protocol import params
@@ -136,6 +137,7 @@ class ProtConPLexPrediction(EMProtocol):
       data = {}
       for seqName, seq in protSeqsDic.items():
           outSeq = SequenceChem(name=seqName, sequence=seq)
+          outSeq.setInteractScoresFile(outputFile)
           outSeqs.append(outSeq)
 
           if seqName not in data:
