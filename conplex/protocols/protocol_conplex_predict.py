@@ -27,6 +27,7 @@ import json, os
 import shutil
 
 from pwem.protocols import EMProtocol
+from pyworkflow.object import Float
 from pyworkflow.protocol import params
 from pwem.convert.atom_struct import AtomicStructHandler
 
@@ -154,6 +155,26 @@ class ProtConPLexPrediction(EMProtocol):
 
       self._defineOutputs(outputSequences=outSeqs)
 
+      if not self.useLibrary.get():
+          inSet = self.inputSmallMols.get()
+          outputMols = inSet.createCopy(self._getPath(), copyInfo=True)
+
+          for mol in inSet:
+              nMol = mol.clone()
+              molName = nMol.getMolName()
+
+              for seqName in protSeqsDic.keys():
+                  score = intDic.get(seqName, {}).get(molName, 0.0)
+
+                  colName = f"{self.scoreName}_{seqName}" if len(protSeqsDic) > 1 else self.scoreName
+                  setattr(nMol, colName, Float(float(score)))
+
+              outputMols.append(nMol)
+
+          outputMols.updateMolClass()
+          self._defineOutputs(outputSmallMolecules=outputMols)
+
+
       if len(protSeqsDic) == 1:
           seqName = list(protSeqsDic.keys())[0]
           scoreDic = intDic[seqName]
@@ -173,21 +194,6 @@ class ProtConPLexPrediction(EMProtocol):
             outputLib.setHeaders(prevHeaders + ['Conplex_score'])
             self._defineOutputs(outputLibrary=outputLib)
 
-          else:
-              inSet = self.inputSmallMols.get()
-              outputSet = inSet.createCopy(self._getPath(), copyInfo=True)
-
-              for mol in inSet:
-                  nMol = mol.clone()
-                  molName = nMol.getMolName()
-
-                  if molName in scoreDic:
-                      score = scoreDic[molName]
-                      setattr(nMol, self.scoreName, params.Float(score))
-                      outputSet.append(nMol)
-
-              outputSet.updateMolClass()
-              self._defineOutputs(outputSmallMolecules=outputSet)
 
 
   ############## UTILS ########################
