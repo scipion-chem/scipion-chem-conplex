@@ -138,7 +138,6 @@ class ProtConPLexPrediction(EMProtocol):
       data = {}
       for seqName, seq in protSeqsDic.items():
           outSeq = SequenceChem(name=seqName, sequence=seq)
-          outSeq.setInteractScoresFile(outputFile)
           outSeqs.append(outSeq)
 
           if seqName not in data:
