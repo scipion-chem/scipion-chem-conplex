@@ -76,10 +76,10 @@ class ProtConPLexPrediction(EMProtocol):
                     help='Whether to use a SMI library SmallMoleculesLibrary object as input')
 
     iGroup.addParam('inputLibrary', params.PointerParam, pointerClass="SmallMoleculesLibrary",
-                    label='Input library: ', condition='useLibrary',
+                    label='Input library: ', condition='useLibrary', allowsNull=True,
                     help="Input Small molecules library to predict")
     iGroup.addParam('inputSmallMols', params.PointerParam, pointerClass="SetOfSmallMolecules",
-                    label='Input small molecules: ', condition='not useLibrary',
+                    label='Input small molecules: ', condition='not useLibrary', allowsNull=True,
                     help='Set of small molecules to input the model for predicting their interactions')
 
 
@@ -176,7 +176,7 @@ class ProtConPLexPrediction(EMProtocol):
       else:
           inLib = self.inputLibrary.get()
           mapDic = inLib.getLibraryMap(inverted=True, fullLine=True)
-          oLibFile = self._getPath('outputLibrary.smi')
+
 
           proteinNames = list(protSeqsDic.keys())
           newHeaders = []
@@ -184,21 +184,7 @@ class ProtConPLexPrediction(EMProtocol):
               header = f"{self.scoreName}_{name}" if len(proteinNames) > 1 else self.scoreName
               newHeaders.append(header)
 
-          with open(oLibFile, 'w') as f:
-              allMols = set()
-              for pName in proteinNames:
-                  allMols.update(intDic.get(pName, {}).keys())
-
-              for molName in allMols:
-                  if molName in mapDic:
-                      lineBase = mapDic[molName]
-                      scoresLine = []
-                      for pName in proteinNames:
-                          s = intDic.get(pName, {}).get(molName, "0.0")
-                          scoresLine.append(str(s))
-
-                      scoresStr = '\t'.join(scoresLine)
-                      f.write(f"{lineBase}\t{scoresStr}\n")
+          oLibFile = self.saveLibraryOutput(proteinNames, mapDic, intDic)
 
           outputLib = inLib.clone()
           outputLib.setFileName(oLibFile)
@@ -287,3 +273,21 @@ class ProtConPLexPrediction(EMProtocol):
 
     return intDic, seqNames, molNames
 
+  def saveLibraryOutput(self, proteinNames, mapDic, intDic, ):
+      oLibFile = self._getPath('outputLibrary.smi')
+      with open(oLibFile, 'w') as f:
+          allMols = set()
+          for pName in proteinNames:
+              allMols.update(intDic.get(pName, {}).keys())
+
+          for molName in allMols:
+              if molName in mapDic:
+                  lineBase = mapDic[molName]
+                  scoresLine = []
+                  for pName in proteinNames:
+                      s = intDic.get(pName, {}).get(molName, "0.0")
+                      scoresLine.append(str(s))
+
+                  scoresStr = '\t'.join(scoresLine)
+                  f.write(f"{lineBase}\t{scoresStr}\n")
+      return oLibFile
