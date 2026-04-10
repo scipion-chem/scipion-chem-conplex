@@ -27,6 +27,7 @@ import json, os
 import shutil
 
 from pwem.protocols import EMProtocol
+from pyworkflow.object import Float
 from pyworkflow.protocol import params
 from pwem.convert.atom_struct import AtomicStructHandler
 
@@ -137,7 +138,6 @@ class ProtConPLexPrediction(EMProtocol):
       data = {}
       for seqName, seq in protSeqsDic.items():
           outSeq = SequenceChem(name=seqName, sequence=seq)
-          outSeq.setInteractScoresFile(outputFile)
           outSeqs.append(outSeq)
 
           if seqName not in data:
@@ -154,40 +154,57 @@ class ProtConPLexPrediction(EMProtocol):
 
       self._defineOutputs(outputSequences=outSeqs)
 
-      if len(protSeqsDic) == 1:
-          seqName = list(protSeqsDic.keys())[0]
-          scoreDic = intDic[seqName]
+      if not self.useLibrary.get():
+          inSet = self.inputSmallMols.get()
+          outputMols = inSet.createCopy(self._getPath(), copyInfo=True)
 
-          if self.useLibrary.get():
-            inLib = self.inputLibrary.get()
-            mapDic = inLib.getLibraryMap(inverted=True, fullLine=True)
+          for mol in inSet:
+              nMol = mol.clone()
+              molName = nMol.getMolName()
 
-            oLibFile = self._getPath('outputLibrary.smi')
-            with open(oLibFile, 'w') as f:
-              for smiName, score in scoreDic.items():
-                f.write(f'{mapDic[smiName]}\t{score}\n')
+              for seqName in protSeqsDic.keys():
+                  score = intDic.get(seqName, {}).get(molName, 0.0)
 
-            prevHeaders = inLib.getHeaders()
-            outputLib = inLib.clone()
-            outputLib.setFileName(oLibFile)
-            outputLib.setHeaders(prevHeaders + ['Conplex_score'])
-            self._defineOutputs(outputLibrary=outputLib)
+                  colName = f"{self.scoreName}_{seqName}" if len(protSeqsDic) > 1 else self.scoreName
+                  setattr(nMol, colName, Float(float(score)))
 
-          else:
-              inSet = self.inputSmallMols.get()
-              outputSet = inSet.createCopy(self._getPath(), copyInfo=True)
+              outputMols.append(nMol)
 
-              for mol in inSet:
-                  nMol = mol.clone()
-                  molName = nMol.getMolName()
+          outputMols.updateMolClass()
+          self._defineOutputs(outputSmallMolecules=outputMols)
 
-                  if molName in scoreDic:
-                      score = scoreDic[molName]
-                      setattr(nMol, self.scoreName, params.Float(score))
-                      outputSet.append(nMol)
+      else:
+          inLib = self.inputLibrary.get()
+          mapDic = inLib.getLibraryMap(inverted=True, fullLine=True)
+          oLibFile = self._getPath('outputLibrary.smi')
 
-              outputSet.updateMolClass()
-              self._defineOutputs(outputSmallMolecules=outputSet)
+          proteinNames = list(protSeqsDic.keys())
+          newHeaders = []
+          for name in proteinNames:
+              header = f"{self.scoreName}_{name}" if len(proteinNames) > 1 else self.scoreName
+              newHeaders.append(header)
+
+          with open(oLibFile, 'w') as f:
+              allMols = set()
+              for pName in proteinNames:
+                  allMols.update(intDic.get(pName, {}).keys())
+
+              for molName in allMols:
+                  if molName in mapDic:
+                      lineBase = mapDic[molName]
+                      scoresLine = []
+                      for pName in proteinNames:
+                          s = intDic.get(pName, {}).get(molName, "0.0")
+                          scoresLine.append(str(s))
+
+                      scoresStr = '\t'.join(scoresLine)
+                      f.write(f"{lineBase}\t{scoresStr}\n")
+
+          outputLib = inLib.clone()
+          outputLib.setFileName(oLibFile)
+          outputLib.setHeaders(inLib.getHeaders() + newHeaders)
+          self._defineOutputs(outputLibrary=outputLib)
+
 
 
   ############## UTILS ########################
