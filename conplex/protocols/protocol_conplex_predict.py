@@ -173,25 +173,37 @@ class ProtConPLexPrediction(EMProtocol):
           outputMols.updateMolClass()
           self._defineOutputs(outputSmallMolecules=outputMols)
 
+      else:
+          inLib = self.inputLibrary.get()
+          mapDic = inLib.getLibraryMap(inverted=True, fullLine=True)
+          oLibFile = self._getPath('outputLibrary.smi')
 
-      if len(protSeqsDic) == 1:
-          seqName = list(protSeqsDic.keys())[0]
-          scoreDic = intDic[seqName]
+          proteinNames = list(protSeqsDic.keys())
+          newHeaders = []
+          for name in proteinNames:
+              header = f"{self.scoreName}_{name}" if len(proteinNames) > 1 else self.scoreName
+              newHeaders.append(header)
 
-          if self.useLibrary.get():
-            inLib = self.inputLibrary.get()
-            mapDic = inLib.getLibraryMap(inverted=True, fullLine=True)
+          with open(oLibFile, 'w') as f:
+              allMols = set()
+              for pName in proteinNames:
+                  allMols.update(intDic.get(pName, {}).keys())
 
-            oLibFile = self._getPath('outputLibrary.smi')
-            with open(oLibFile, 'w') as f:
-              for smiName, score in scoreDic.items():
-                f.write(f'{mapDic[smiName]}\t{score}\n')
+              for molName in allMols:
+                  if molName in mapDic:
+                      lineBase = mapDic[molName]
+                      scoresLine = []
+                      for pName in proteinNames:
+                          s = intDic.get(pName, {}).get(molName, "0.0")
+                          scoresLine.append(str(s))
 
-            prevHeaders = inLib.getHeaders()
-            outputLib = inLib.clone()
-            outputLib.setFileName(oLibFile)
-            outputLib.setHeaders(prevHeaders + ['Conplex_score'])
-            self._defineOutputs(outputLibrary=outputLib)
+                      scoresStr = '\t'.join(scoresLine)
+                      f.write(f"{lineBase}\t{scoresStr}\n")
+
+          outputLib = inLib.clone()
+          outputLib.setFileName(oLibFile)
+          outputLib.setHeaders(inLib.getHeaders() + newHeaders)
+          self._defineOutputs(outputLibrary=outputLib)
 
 
 
