@@ -34,37 +34,39 @@ from pwchem.utils import assertHandle
 from ..protocols import ProtConPLexPrediction
 
 class TestConPLexPrediction(TestImportSequences):
-	@classmethod
-	def setUpClass(cls):
-		super().setUpClass()
-		cls.ds = DataSet.getDataSet('model_building_tutorial')
-		cls.dsLig = DataSet.getDataSet("smallMolecules")
-		setupTestProject(cls)
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.ds = DataSet.getDataSet('model_building_tutorial')
+        cls.dsLig = DataSet.getDataSet("smallMolecules")
+        setupTestProject(cls)
 
-		cls._runImportSmallMols()
-		cls._runImportSeqs()
-		cls._waitOutput(cls.protImportSmallMols, 'outputSmallMolecules', sleepTime=5)
-		cls._waitOutput(cls.protImportSeqs, 'outputSequences', sleepTime=5)
+        cls._runImportSmallMols()
+        cls._runImportSeqs()
+        cls._waitOutput(cls.protImportSmallMols, 'outputSmallMolecules', sleepTime=5)
+        cls._waitOutput(cls.protImportSeqs, 'outputSequences', sleepTime=5)
 
-	@classmethod
-	def _runImportSmallMols(cls):
-		cls.protImportSmallMols = cls.newProtocol(
-			ProtChemImportSmallMolecules,
-			filesPath=cls.dsLig.getFile('mol2'))
-		cls.proj.launchProtocol(cls.protImportSmallMols, wait=False)
+    @classmethod
+    def _runImportSmallMols(cls):
+        cls.protImportSmallMols = cls.newProtocol(
+            ProtChemImportSmallMolecules,
+            filesPath=cls.dsLig.getFile('mol2'))
+        cls.proj.launchProtocol(cls.protImportSmallMols, wait=False)
 
-	def _runConPLexPrediction(self):
-		protConPLex = self.newProtocol(ProtConPLexPrediction)
+    def _runConPLexPrediction(self):
+        protConPLex = self.newProtocol(ProtConPLexPrediction)
 
-		protConPLex.inputSequences.set(self.protImportSeqs)
-		protConPLex.inputSequences.setExtended('outputSequences')
-		protConPLex.inputSmallMols.set(self.protImportSmallMols)
-		protConPLex.inputSmallMols.setExtended('outputSmallMolecules')
+        protConPLex.inputSequences.set(self.protImportSeqs)
+        protConPLex.inputSequences.setExtended('outputSequences')
+        protConPLex.inputSmallMols.set(self.protImportSmallMols)
+        protConPLex.inputSmallMols.setExtended('outputSmallMolecules')
 
-		self.proj.launchProtocol(protConPLex, wait=False)
-		return protConPLex
+        self.proj.launchProtocol(protConPLex, wait=False)
+        return protConPLex
 
-	def test(self):
-		protConPLex = self._runConPLexPrediction()
-		self._waitOutput(protConPLex, 'outputSequences', sleepTime=10)
-		assertHandle(self.assertIsNotNone, getattr(protConPLex, 'outputSequences', None))
+    def test(self):
+        protConPLex = self._runConPLexPrediction()
+        self._waitOutput(protConPLex, 'outputSequences', sleepTime=10)
+        assertHandle(self.assertIsNotNone, getattr(protConPLex, 'outputSequences', None))
+        self._waitOutput(protConPLex, 'outputSmallMolecules', sleepTime=10)
+        assertHandle(self.assertIsNotNone, getattr(protConPLex, 'outputSmallMolecules', None))

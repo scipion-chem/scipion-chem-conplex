@@ -23,41 +23,63 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import json
-import os
+import json, os
+import shutil
 
 from pwem.protocols import EMProtocol
+from pyworkflow.object import Float
 from pyworkflow.protocol import params
+from pwem.convert.atom_struct import AtomicStructHandler
 
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import OPENBABEL_DIC
-from pwchem.objects import SequenceChem, SetOfSequencesChem, SmallMoleculesLibrary
+from pwchem.objects import SetOfSequencesChem, SmallMoleculesLibrary, SequenceChem
 
 from .. import Plugin as conplexPlugin
 from ..constants import CONPLEX_DIC
 
+SEQ, AS, SEQS = 0, 1, 2
+
 class ProtConPLexPrediction(EMProtocol):
   """Run a prediction using a ConPLex trained model over a set of proteins and ligands"""
   _label = 'conplex virtual screening'
-
-  def __init__(self, **kwargs):
-    EMProtocol.__init__(self, **kwargs)
-    self.stepsExecutionMode = params.STEPS_PARALLEL
+  scoreName = 'ConPlex_score'
+  stepsExecutionMode = params.STEPS_PARALLEL
 
   def _defineParams(self, form):
+    form.addHidden(params.USE_GPU, params.BooleanParam, default=True,
+                   label="Use GPU for execution: ",
+                   help="This protocol has both CPU and GPU implementation.\
+                                                 Select the one you want to use.")
+    form.addHidden(params.GPU_LIST, params.StringParam, default='0', label="Choose GPU IDs",
+                   help="Add a list of GPU devices that can be used")
+
     form.addSection(label='Input')
-    iGroup = form.addGroup('Input')
-    iGroup.addParam('inputSequences', params.PointerParam, pointerClass="SetOfSequences",
-                    label='Input protein sequences: ',
+    iGroup = form.addGroup('Input Sequence')
+    iGroup.addParam('inSeqForm', params.EnumParam, label='Input sequence(s) as: ', default=SEQS,
+                    choices=['Sequence', 'AtomStruct', 'SetOfSequences'],
+                    help='How to input the input sequence(s)')
+    iGroup.addParam('inputSequence', params.PointerParam, pointerClass="Sequence", allowsNull=True,
+                    label='Input protein sequence: ', condition=f'inSeqForm=={SEQ}',
+                    help="Protein sequence to perform the screening on")
+    iGroup.addParam('inputAS', params.PointerParam, pointerClass="AtomStruct", allowsNull=True,
+                    label='Input protein structure: ', condition=f'inSeqForm=={AS}',
+                    help="Protein structure to perform the screening on")
+    iGroup.addParam('inChain', params.StringParam, label='Chain for input: ', condition=f'inSeqForm=={AS}',
+                    help='Specify the protein chain to use as input')
+    iGroup.addParam('inputSequences', params.PointerParam, pointerClass="SetOfSequences", allowsNull=True,
+                    label='Input protein sequences: ', condition=f'inSeqForm=={SEQS}',
                     help="Set of protein sequences to perform the screening on")
+
+    iGroup = form.addGroup('Input Ligands')
     iGroup.addParam('useLibrary', params.BooleanParam, label='Use library as input : ', default=False,
                     help='Whether to use a SMI library SmallMoleculesLibrary object as input')
 
     iGroup.addParam('inputLibrary', params.PointerParam, pointerClass="SmallMoleculesLibrary",
-                    label='Input library: ', condition='useLibrary',
+                    label='Input library: ', condition='useLibrary', allowsNull=True,
                     help="Input Small molecules library to predict")
     iGroup.addParam('inputSmallMols', params.PointerParam, pointerClass="SetOfSmallMolecules",
-                    label='Input small molecules: ', condition='not useLibrary',
+                    label='Input small molecules: ', condition='not useLibrary', allowsNull=True,
                     help='Set of small molecules to input the model for predicting their interactions')
 
 
@@ -95,93 +117,94 @@ class ProtConPLexPrediction(EMProtocol):
 
     modelPath = os.path.join(conplexPlugin.getModelsDir(), self.getEnumText('modelName'))
     program = f'{pwchemPlugin.getEnvActivationCommand(CONPLEX_DIC)} && conplex-dti predict '
-    args = f"--data-file {argFile} --model-path {modelPath} --outfile results.tsv"
+    args = f"--data-file {argFile} --model-path {modelPath} --outfile results.tsv "
+    args += ' --device %(GPU)s'
     self.runJob(program, args, cwd=self._getPath())
 
   def createOutputStep(self):
-    inSeqs = self.inputSequences.get()
-    intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
+      protSeqsDic = self.getInputSeqs()
+      intDic, _, _ = self.parseInteractionsFile(self.getInteractionsFile())
 
-    outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
-    outputFile = self._getExtraPath("scoresFile.json")
+      outSeqs = SetOfSequencesChem().create(outputPath=self._getPath())
+      if self.inSeqForm.get() == SEQS:
+          outSeqs.copyInfo(self.inputSequences.get())
 
-    newEntries = []
-    for seq in inSeqs:
-      seqName = seq.getSeqName()
-      outSeq = SequenceChem()
-      outSeq.copy(seq)
-      outSeq.setInteractScoresFile(outputFile)
+      outputFile = self._getExtraPath("scoresFile.json")
+      prevFile = outSeqs.getInteractScoresFile()
+      if prevFile and os.path.exists(prevFile):
+        shutil.copy(prevFile, outputFile)
+      outSeqs.setInteractScoresFile(outputFile)
 
-      outSeqs.append(outSeq)
+      data = {}
+      for seqName, seq in protSeqsDic.items():
+          outSeq = SequenceChem(name=seqName, sequence=seq)
+          outSeqs.append(outSeq)
 
-      seqMolScores = intDic[seqName]
+          if seqName not in data:
+              data[seqName] = {}
 
-      molsDict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
-      entry = {
-          "sequence": seqName,
-          "molecules": molsDict
-      }
-      newEntries.append(entry)
+          for mol, score in intDic[seqName].items():
+              data[seqName][mol] = {self.scoreName: score}
 
-    try:
-        with open(outputFile, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        data = {"entries": []}
+      outSeqs.setInteractScoresDic(data)
+      outSeqs.updateScoreTypes()
 
-    outSeqs.setInteractScoresDic(newEntries, data, outputFile)
+      outMols = self.inputLibrary.get() if self.useLibrary.get() else self.inputSmallMols.get()
+      outSeqs.setInteractMols(mols=outMols)
 
-    print(f"Saved JSON to {outputFile}")
+      self._defineOutputs(outputSequences=outSeqs)
 
-    if not self.useLibrary.get():
-      outMols = self.inputSmallMols.get()
-    else:
-      outMols = self.inputLibrary.get()
+      if not self.useLibrary.get():
+          inSet = self.inputSmallMols.get()
+          outputMols = inSet.createCopy(self._getPath(), copyInfo=True)
 
-    # Collect all score types from newEntries
-    scoreTypes = set()
-    for entry in newEntries:
-        for molScores in entry["molecules"].values():
-            for key in molScores.keys():
-                if key.startswith("score_"):
-                    scoreTypes.add(key.split("_", 1)[1])
+          for mol in inSet:
+              nMol = mol.clone()
+              molName = nMol.getMolName()
 
+              for seqName in protSeqsDic.keys():
+                  score = intDic.get(seqName, {}).get(molName, 0.0)
 
-    outSeqs.setInteractMols(mols=outMols)
-    outSeqs.setScoreTypes(scores=list(scoreTypes))
-    self._defineOutputs(outputSequences=outSeqs)
+                  colName = f"{self.scoreName}_{seqName}" if len(protSeqsDic) > 1 else self.scoreName
+                  setattr(nMol, colName, Float(float(score)))
 
-    # Mols output
-    if len(inSeqs) == 1:
-      inSeq = inSeqs.getFirstItem()
-      scoreDic = intDic[inSeq.getSeqName()]
+              outputMols.append(nMol)
 
-      if self.useLibrary.get():
-        mapDic = self.inputLibrary.get().getLibraryMap(inverted=True)
-        oLibFile = self._getPath('outputLibrary.smi')
-        with open(oLibFile, 'w') as f:
-          for smiName, score in scoreDic.items():
-            f.write(f'{mapDic[smiName]}\t{smiName}\t{score}\n')
-
-        outputLib = SmallMoleculesLibrary(libraryFilename=oLibFile, origin='GCR')
-        self._defineOutputs(outputLibrary=outputLib)
+          outputMols.updateMolClass()
+          self._defineOutputs(outputSmallMolecules=outputMols)
 
       else:
-        inSet = self.inputSmallMols.get()
-        outputSet = inSet.createCopy(self._getPath(), copyInfo=True)
-        for mol in inSet:
-          nMol = mol.clone()
-          molName = nMol.getMolName()
-          if molName in scoreDic:
-            score = scoreDic[molName]
-            setattr(nMol, '_conplexScore', params.Float(score))
-            outputSet.append(nMol)
-        outputSet.updateMolClass()
-        self._defineOutputs(outputSmallMolecules=outputSet)
+          inLib = self.inputLibrary.get()
+          mapDic = inLib.getLibraryMap(inverted=True, fullLine=True)
+
+
+          proteinNames = list(protSeqsDic.keys())
+          newHeaders = []
+          for name in proteinNames:
+              header = f"{self.scoreName}_{name}" if len(proteinNames) > 1 else self.scoreName
+              newHeaders.append(header)
+
+          oLibFile = self.saveLibraryOutput(proteinNames, mapDic, intDic)
+
+          outputLib = inLib.clone()
+          outputLib.setFileName(oLibFile)
+          outputLib.setHeaders(inLib.getHeaders() + newHeaders)
+          self._defineOutputs(outputLibrary=outputLib)
 
 
 
   ############## UTILS ########################
+  def getDevices(self):
+    if getattr(self, params.USE_GPU).get():
+      gpuIdxs = getattr(self, params.GPU_LIST).get()
+      if not gpuIdxs.strip():
+        gpuIdxs = [0]
+      else:
+        gpuIdxs = [idx.strip() for idx in gpuIdxs.split(',')]
+    else:
+      gpuIdxs = ['cpu']
+    return gpuIdxs
+
   def copyInputMolsInDir(self):
     oDir = os.path.abspath(self._getTmpPath('inMols'))
     if not os.path.exists(oDir):
@@ -212,8 +235,21 @@ class ProtConPLexPrediction(EMProtocol):
 
   def getInputSeqs(self):
     seqsDic = {}
-    for seq in self.inputSequences.get():
+    if self.inSeqForm.get() == SEQ:
+      seq = self.inputSequence.get()
       seqsDic[seq.getSeqName()] = seq.getSequence()
+    elif self.inSeqForm.get() == AS:
+      inAS = self.inputAS.get()
+      seqName = os.path.basename(inAS.getFileName())
+      handler = AtomicStructHandler(inAS.getFileName())
+      struct = json.loads(getattr(self, 'inChain').get())  # From wizard dictionary
+      chain_id, modelId = struct["chain"].upper().strip(), int(struct["model"])
+      seq = str(handler.getSequenceFromChain(modelID=modelId, chainID=chain_id))
+
+      seqsDic[seqName] = seq
+    elif self.inSeqForm.get() == SEQS:
+      for seq in self.inputSequences.get():
+        seqsDic[seq.getSeqName()] = seq.getSequence()
     return seqsDic
 
   def getInteractionsFile(self):
@@ -237,3 +273,21 @@ class ProtConPLexPrediction(EMProtocol):
 
     return intDic, seqNames, molNames
 
+  def saveLibraryOutput(self, proteinNames, mapDic, intDic, ):
+      oLibFile = self._getPath('outputLibrary.smi')
+      with open(oLibFile, 'w') as f:
+          allMols = set()
+          for pName in proteinNames:
+              allMols.update(intDic.get(pName, {}).keys())
+
+          for molName in allMols:
+              if molName in mapDic:
+                  lineBase = mapDic[molName]
+                  scoresLine = []
+                  for pName in proteinNames:
+                      s = intDic.get(pName, {}).get(molName, "0.0")
+                      scoresLine.append(str(s))
+
+                  scoresStr = '\t'.join(scoresLine)
+                  f.write(f"{lineBase}\t{scoresStr}\n")
+      return oLibFile
