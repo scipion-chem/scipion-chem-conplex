@@ -112,9 +112,12 @@ class ProtConPLexPrediction(EMProtocol):
       outSeq.copy(seq)
       outSeq.setInteractScoresFile(outputFile)
 
-      outSeqs.append(outSeq)
-
       seqMolScores = intDic[seqName]
+
+      for molName, score in seqMolScores.items():
+        setattr(outSeq, f'{molName}_ConplexScore', params.Float(float(score)))
+
+      outSeqs.append(outSeq)
 
       molsDict = {mol: {"score_ConPlex": score} for mol, score in seqMolScores.items()}
       entry = {
