@@ -106,11 +106,12 @@ class ProtConPLexPrediction(EMProtocol):
     outputFile = self._getExtraPath("scoresFile.json")
 
     newEntries = []
+    outSeqs.setInteractScoresFile(outputFile)
     for seq in inSeqs:
       seqName = seq.getSeqName()
       outSeq = SequenceChem()
       outSeq.copy(seq)
-      outSeq.setInteractScoresFile(outputFile)
+      # outSeq.setInteractScoresFile(outputFile)
 
       seqMolScores = intDic[seqName]
 
@@ -131,8 +132,7 @@ class ProtConPLexPrediction(EMProtocol):
             data = json.load(f)
     except FileNotFoundError:
         data = {"entries": []}
-
-    outSeqs.setInteractScoresDic(newEntries, data, outputFile)
+    # outSeqs.setInteractScoresDic(newEntries)
 
     print(f"Saved JSON to {outputFile}")
 
