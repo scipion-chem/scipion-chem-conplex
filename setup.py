@@ -9,20 +9,30 @@ https://github.com/pypa/sampleproject
 from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
-from os import path
+import os, re
 
-here = path.abspath(path.dirname(__file__))
+here = os.path.abspath(os.path.dirname(__file__))
 
 # Get the long description from the README file
-with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
+with open(os.path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 with open('requirements.txt') as f:
     requirements = f.read().splitlines()
 
+VERSION_FILE = os.path.join(here, "conplex", "version.py")
+
+def get_version():
+    with open(VERSION_FILE, "r") as f:
+        content = f.read()
+    match = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', content, re.M)
+    if not match:
+        raise RuntimeError(f"Unable to find version string in {VERSION_FILE}")
+    return match.group(1)
+
 setup(
     name='scipion-chem-conplex',
-    version='3.0.0',
+    version=get_version(),
     description='Scipion framework plugin for the use of ConPLex models for protein-ligand interaction prediction',
     long_description=long_description,
     url='https://github.com/scipion-chem/scipion-chem-conplex',
